@@ -17,10 +17,12 @@ class Configuration:
 
     # Model Settings
     model: str = field(
-        default="azure/gpt-4.1",
+        default="google/gemini-2.5-flash",
         metadata={
             "description": "LLM model to use (provider/model format)",
             "examples": [
+                "google/gemini-2.5-flash",
+                "google/gemini-2.5-pro",
                 "azure/gpt-4.1",
                 "openai/gpt-4.1",
                 "openai/gpt-4.1-mini",
@@ -75,6 +77,17 @@ class Configuration:
         default=True, metadata={"description": "Whether to enable state checkpointing"}
     )
 
+    # Obsidian Integration Settings
+    obsidian_vault_path: str = field(
+        default=r"G:\내 드라이브\obsidian\Obsidian",
+        metadata={"description": "Path to Obsidian vault root directory"},
+    )
+
+    obsidian_folder: str = field(
+        default="Research",
+        metadata={"description": "Folder within the vault to save research reports"},
+    )
+
     @classmethod
     def from_runnable_config(
         cls, config: Optional[RunnableConfig] = None
@@ -107,5 +120,11 @@ class Configuration:
             ),
             enable_checkpointing=configurable.get(
                 "enable_checkpointing", defaults.enable_checkpointing
+            ),
+            obsidian_vault_path=configurable.get(
+                "obsidian_vault_path", defaults.obsidian_vault_path
+            ),
+            obsidian_folder=configurable.get(
+                "obsidian_folder", defaults.obsidian_folder
             ),
         )

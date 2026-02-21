@@ -3,6 +3,10 @@
 This module defines the LangGraph graph that orchestrates the research process.
 """
 
+import os
+import re
+from datetime import datetime
+from pathlib import Path
 from typing import List, Literal, cast
 from langchain_core.messages import (
     HumanMessage,
@@ -71,7 +75,7 @@ async def create_analysts(state: ResearchGraphState, config: RunnableConfig) -> 
         ]
     )
 
-    return {"analysts": result.analysts}
+    return {"analysts": result.analysts, "topic": topic}
 
 
 # ====================== Interview Nodes ======================
@@ -355,6 +359,10 @@ async def finalize_report(state: ResearchGraphState) -> dict:
     """
     content = state["content"]
 
+    # Handle case where content arrives as a list
+    if isinstance(content, list):
+        content = "\n\n".join(str(c) for c in content)
+
     # Remove "## Insights" title
     if content.startswith("## Insights"):
         content = content.strip("## Insights")
@@ -384,6 +392,83 @@ async def finalize_report(state: ResearchGraphState) -> dict:
         "final_report": final_report,
         "messages": [HumanMessage(content=final_report)],
     }
+
+
+# ====================== Obsidian Integration Node ======================
+
+
+def _sanitize_filename(name: str) -> str:
+    """Remove characters that are invalid in file names."""
+    return re.sub(r'[<>:"/\\|?*]', "", name).strip()
+
+
+async def save_to_obsidian(state: ResearchGraphState, config: RunnableConfig) -> dict:
+    """Save the final report as a Markdown file in the Obsidian vault.
+
+    Adds YAML frontmatter (tags, date, topic) and writes the file to
+    the configured Research folder inside the Obsidian vault.
+    """
+    configuration = Configuration.from_runnable_config(config)
+    vault_path = Path(configuration.obsidian_vault_path)
+    folder = configuration.obsidian_folder
+
+    # Build target directory
+    target_dir = vault_path / folder
+    target_dir.mkdir(parents=True, exist_ok=True)
+
+    # Extract topic – prefer explicit topic field, fall back to first user message
+    topic = state.get("topic") or ""
+    if not topic and state.get("messages"):
+        for msg in state["messages"]:
+            if isinstance(msg, HumanMessage) and msg.content:
+                topic = msg.content
+                break
+    topic = topic or "Research"
+
+    # Build filename
+    date_str = datetime.now().strftime("%Y-%m-%d")
+    safe_topic = _sanitize_filename(topic)
+    filename = f"{safe_topic} - STORM Research ({date_str}).md"
+    file_path = target_dir / filename
+
+    # Build YAML frontmatter
+    frontmatter = (
+        "---\n"
+        f"title: \"{safe_topic} - STORM Research\"\n"
+        f"date: {date_str}\n"
+        f"topic: \"{safe_topic}\"\n"
+        "tags:\n"
+        "  - storm-research\n"
+        "  - auto-generated\n"
+        "---\n\n"
+    )
+
+    # Generate Korean summary using LLM
+    model = load_chat_model(configuration.model)
+    summary = await model.ainvoke(
+        [
+            SystemMessage(
+                content=(
+                    "You are a helpful translator and summarizer. "
+                    "Given an English research report, produce a concise Korean summary. "
+                    "Format:\n"
+                    "1. 한 줄 한국어 제목 (# 헤딩)\n"
+                    "2. '## 핵심 요약' 섹션: 리포트의 핵심 내용을 3~5개 bullet point로 요약\n"
+                    "3. '## 주요 키워드' 섹션: 주요 키워드 5~8개를 나열\n"
+                    "Output ONLY the Korean summary in Markdown. No English."
+                )
+            ),
+            HumanMessage(content=state["final_report"]),
+        ]
+    )
+    korean_section = summary.content + "\n\n---\n\n"
+
+    # Write file
+    file_path.write_text(
+        frontmatter + korean_section + state["final_report"], encoding="utf-8"
+    )
+
+    return {"file_path": str(file_path)}
 
 
 # ====================== Graph Build Functions ======================
@@ -442,6 +527,7 @@ def build_research_graph():
     builder.add_node("write_introduction", write_introduction)
     builder.add_node("write_conclusion", write_conclusion)
     builder.add_node("finalize_report", finalize_report)
+    builder.add_node("save_to_obsidian", save_to_obsidian)
 
     # Define edges
     builder.add_edge(START, "create_analysts")
@@ -458,7 +544,8 @@ def build_research_graph():
     builder.add_edge(
         ["write_conclusion", "write_report", "write_introduction"], "finalize_report"
     )
-    builder.add_edge("finalize_report", END)
+    builder.add_edge("finalize_report", "save_to_obsidian")
+    builder.add_edge("save_to_obsidian", END)
 
     # LangGraph API automatically manages checkpointer
     graph = builder.compile()

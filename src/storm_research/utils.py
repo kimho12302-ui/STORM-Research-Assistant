@@ -8,6 +8,7 @@ from typing import Union, Optional
 from langchain_openai import ChatOpenAI
 from langchain_openai.chat_models import AzureChatOpenAI
 from langchain_anthropic import ChatAnthropic
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
 
@@ -35,19 +36,21 @@ def load_chat_model(model_string: str) -> BaseChatModel:
     # Initialize model by provider
     if provider == "openai":
         return ChatOpenAI(model=model_name)
+    elif provider == "google":
+        return ChatGoogleGenerativeAI(model=model_name)
     elif provider == "anthropic":
         return ChatAnthropic(model=model_name)
     elif provider == "azure":
         # Azure OpenAI configuration
         azure_endpoint = os.environ.get("AZURE_OPENAI_ENDPOINT")
         azure_api_key = os.environ.get("AZURE_OPENAI_API_KEY")
-        
+
         if not azure_endpoint or not azure_api_key:
             raise ValueError(
                 "To use Azure OpenAI, AZURE_OPENAI_ENDPOINT and "
                 "AZURE_OPENAI_API_KEY environment variables must be set."
             )
-        
+
         return AzureChatOpenAI(
             deployment_name=model_name,
             api_version="2024-12-01-preview",

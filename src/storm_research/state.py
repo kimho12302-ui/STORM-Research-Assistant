@@ -71,6 +71,8 @@ class OutputState:
 
     # Completed final report
     final_report: str
+    # File path where report was saved (Obsidian)
+    file_path: Optional[str] = None
 
 
 class GenerateAnalystsState(InputState):
@@ -125,6 +127,8 @@ class ResearchGraphState(TypedDict):
     conclusion: str
     # Completed final report
     final_report: str
+    # File path where report was saved (Obsidian)
+    file_path: Optional[str]
 
     # Research topic
     messages: Annotated[Sequence[AnyMessage], add_messages] = field(
